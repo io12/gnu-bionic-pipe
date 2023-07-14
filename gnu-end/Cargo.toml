@@ -1,0 +1,37 @@
+[package]
+name = "gnu-end"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "gnubionicpipe"
+crate-type = ["cdylib"]
+
+[build-dependencies.bindgen]
+version = "0.66.1"
+default-features = false
+features = []
+
+[build-dependencies.syn]
+version = "2.0.25"
+default-features = false
+features = []
+
+[build-dependencies.quote]
+version = "1.0.29"
+default-features = false
+features = []
+
+[build-dependencies.proc-macro2]
+version = "1.0.64"
+default-features = false
+features = []
+
+[build-dependencies.prettyplease]
+version = "0.2.10"
+default-features = false
+features = []
+
+[dependencies]
+ctor = "0.2.4"
+userland-execve = { path = "../../userland-execve-rust" }
