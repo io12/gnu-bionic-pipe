@@ -2,7 +2,6 @@ mod generated;
 
 pub use generated::*;
 
-use ctor::ctor;
 use std::{
     arch::global_asm,
     ffi::{CStr, CString},
@@ -10,6 +9,7 @@ use std::{
     path::Path,
 };
 
+static mut INITIALIZED: bool = false;
 static mut TABLE: [usize; FUNC_NAMES.len()] = [0; FUNC_NAMES.len()];
 static mut SAVED_STACK_PTR: usize = 0;
 static mut SAVED_FRAME_PTR: usize = 0;
@@ -113,7 +113,9 @@ extern "C" fn do_exec() -> ! {
     userland_execve::exec(Path::new(path), &args, &[] as &[&CStr])
 }
 
-#[ctor]
-unsafe fn load_thunks() {
+unsafe fn init() {
+    assert!(!INITIALIZED);
     load_thunks_asm();
+    assert!(!INITIALIZED);
+    INITIALIZED = true;
 }

@@ -33,5 +33,4 @@ default-features = false
 features = []
 
 [dependencies]
-ctor = "0.2.4"
 userland-execve = { path = "../../userland-execve-rust" }

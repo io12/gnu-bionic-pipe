@@ -12,7 +12,6 @@ fn make_thunk(index: usize, extern_c: &syn::ItemForeignMod) -> (String, TokenStr
         syn::ForeignItem::Fn(c_fn) => c_fn,
         _ => panic!("item in `extern \"C\"` block is not an `fn`"),
     };
-    assert!(c_fn.attrs.is_empty());
     assert!(matches!(c_fn.vis, syn::Visibility::Public(_)));
     assert!(c_fn.sig.constness.is_none());
     assert!(c_fn.sig.asyncness.is_none());
@@ -42,6 +41,9 @@ fn make_thunk(index: usize, extern_c: &syn::ItemForeignMod) -> (String, TokenStr
     let thunk = quote! {
         #[no_mangle]
         pub unsafe extern "C" fn #name(#args) #return_type {
+            if !crate::INITIALIZED {
+                crate::init();
+            }
             ::std::mem::transmute::<
                 *mut ::std::os::raw::c_void,
                 unsafe extern "C" fn(#args) #return_type,
@@ -53,7 +55,9 @@ fn make_thunk(index: usize, extern_c: &syn::ItemForeignMod) -> (String, TokenStr
 
 fn main() {
     let bindings = bindgen::builder()
-        .header("build-inputs/include/GLES2/gl2.h")
+        .header("build-inputs/ndk-toolchain/sysroot/usr/include/GLES2/gl2.h")
+        .clang_arg("-I./build-inputs/ndk-toolchain/lib64/clang/9.0.8/include")
+        .clang_arg("-I./build-inputs/ndk-toolchain/sysroot/usr/include")
         .generate()
         .unwrap()
         .to_string();
