@@ -4,8 +4,9 @@ pub use generated::*;
 
 use std::{
     arch::global_asm,
-    ffi::{CStr, CString},
+    ffi::{CString, OsString},
     iter::once,
+    os::unix::prelude::OsStringExt,
     path::Path,
 };
 
@@ -122,7 +123,17 @@ extern "C" fn do_exec() -> ! {
         .chain(once(str_to_c_string("libvulkan.so")))
         .chain(symbols)
         .collect::<Vec<CString>>();
-    userland_execve::exec(Path::new(path), &args, &[] as &[&CStr])
+    let env = std::env::vars_os()
+        .filter(|(var, _)| var != "LD_PRELOAD")
+        .map(|(var, val)| {
+            let s = [var, OsString::from("="), val]
+                .into_iter()
+                .collect::<OsString>()
+                .into_vec();
+            CString::new(s).unwrap()
+        })
+        .collect::<Vec<CString>>();
+    userland_execve::exec(Path::new(path), &args, &env)
 }
 
 unsafe fn init() {
