@@ -502,6 +502,8 @@ checksum = "22049a19f4a68748a168c0fc439f9516686aa045927ff767eca0a85101fb6e73"
 [[package]]
 name = "userland-execve"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e233bd5da3747feb6fc63f0734834a9ba9a908339a973203281eb0b68c0920e0"
 dependencies = [
  "goblin",
  "nix",
