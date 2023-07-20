@@ -14,7 +14,7 @@ static mut INITIALIZED: bool = false;
 static mut TABLE: [usize; FUNC_NAMES.len()] = [0; FUNC_NAMES.len()];
 static mut SAVED_STACK_PTR: usize = 0;
 static mut SAVED_FRAME_PTR: usize = 0;
-#[cfg(target_arg = "aarch64")]
+#[cfg(target_arch = "aarch64")]
 static mut SAVED_LR: usize = 0;
 
 #[cfg(target_arch = "x86_64")]
