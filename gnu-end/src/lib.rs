@@ -119,7 +119,7 @@ extern "C" fn do_exec() -> ! {
     let args = once(str_to_c_string(path))
         .chain(once(return_pad_addr))
         .chain(once(table_addr))
-        .chain(once(str_to_c_string("libGLESv2.so")))
+        .chain(once(str_to_c_string("libvulkan.so")))
         .chain(symbols)
         .collect::<Vec<CString>>();
     userland_execve::exec(Path::new(path), &args, &[] as &[&CStr])

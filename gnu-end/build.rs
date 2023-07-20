@@ -55,7 +55,7 @@ fn make_thunk(index: usize, extern_c: &syn::ItemForeignMod) -> (String, TokenStr
 
 fn main() {
     let bindings = bindgen::builder()
-        .header("build-inputs/ndk-toolchain/sysroot/usr/include/GLES2/gl2.h")
+        .header("build-inputs/ndk-toolchain/sysroot/usr/include/vulkan/vulkan.h")
         .clang_arg("-I./build-inputs/ndk-toolchain/lib64/clang/9.0.8/include")
         .clang_arg("-I./build-inputs/ndk-toolchain/sysroot/usr/include")
         .generate()
