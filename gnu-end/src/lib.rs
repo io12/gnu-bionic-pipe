@@ -13,6 +13,8 @@ static mut INITIALIZED: bool = false;
 static mut TABLE: [usize; FUNC_NAMES.len()] = [0; FUNC_NAMES.len()];
 static mut SAVED_STACK_PTR: usize = 0;
 static mut SAVED_FRAME_PTR: usize = 0;
+#[cfg(target_arg = "aarch64")]
+static mut SAVED_LR: usize = 0;
 
 #[cfg(target_arch = "x86_64")]
 global_asm!(
@@ -51,9 +53,14 @@ global_asm!(
     "  add x0, x0, :lo12:{fp}",
     "  str fp, [x0]",
     "  ",
+    "  adrp x0, {lr}",
+    "  add x0, x0, :lo12:{lr}",
+    "  str lr, [x0]",
+    "  ",
     "  b {do_exec}",
     sp = sym SAVED_STACK_PTR,
     fp = sym SAVED_FRAME_PTR,
+    lr = sym SAVED_LR,
     do_exec = sym do_exec
 );
 
@@ -73,9 +80,14 @@ global_asm!(
     "  add x0, x0, :lo12:{fp}",
     "  ldr fp, [x0]",
     "  ",
+    "  adrp x0, {lr}",
+    "  add x0, x0, :lo12:{lr}",
+    "  ldr lr, [x0]",
+    "  ",
     "  ret",
     sp = sym SAVED_STACK_PTR,
     fp = sym SAVED_FRAME_PTR,
+    lr = sym SAVED_LR,
 );
 
 extern "C" {
