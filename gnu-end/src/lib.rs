@@ -117,7 +117,11 @@ extern "C" fn do_exec() -> ! {
     let return_pad_addr = hex_fmt(return_pad as usize);
     let table_addr = hex_fmt(unsafe { TABLE.as_mut_ptr() } as usize);
     let symbols = FUNC_NAMES.into_iter().map(str_to_c_string);
-    let args = once(str_to_c_string(path))
+    // Calling the program directly instead of through the linker works,
+    // except then the linker goes through a code path that queries /proc/self/exe,
+    // which breaks the userland exec.
+    let args = once(str_to_c_string("/system/bin/linker64"))
+        .chain(once(str_to_c_string(path)))
         .chain(once(return_pad_addr))
         .chain(once(table_addr))
         .chain(once(str_to_c_string("libvulkan.so")))
