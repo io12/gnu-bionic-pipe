@@ -25,9 +25,11 @@ fn main() {
     let table = unsafe { std::slice::from_raw_parts_mut(table_ptr, args.symbols.len()) };
     for (i, symbol) in args.symbols.into_iter().enumerate() {
         let symbol = symbol.as_bytes();
-        let symbol = unsafe { library.get::<usize>(symbol) }.unwrap();
-        let symbol = symbol.into_raw() as usize;
-        table[i] = symbol;
+        let symbol = unsafe { library.get::<usize>(symbol) };
+        if let Ok(symbol) = symbol {
+            let symbol = symbol.into_raw() as usize;
+            table[i] = symbol;
+        }
     }
 
     // Jump to return address

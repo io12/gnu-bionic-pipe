@@ -38,16 +38,20 @@ fn make_thunk(index: usize, extern_c: &syn::ItemForeignMod) -> (String, TokenStr
     });
     let arg_names = quote!(#(#arg_names),*);
     let name_string = name.to_token_stream().to_string();
+    let not_loaded_message = format!("{name} not loaded");
     let thunk = quote! {
         #[no_mangle]
         pub unsafe extern "C" fn #name(#args) #return_type {
             if !crate::INITIALIZED {
                 crate::init();
             }
-            ::std::mem::transmute::<
+            let void_ptr = crate::TABLE[#index] as *mut ::std::os::raw::c_void;
+            assert!(!void_ptr.is_null(), #not_loaded_message);
+            let func_ptr = ::std::mem::transmute::<
                 *mut ::std::os::raw::c_void,
                 unsafe extern "C" fn(#args) #return_type,
-            >(crate::TABLE[#index] as *mut ::std::os::raw::c_void)(#arg_names)
+            >(void_ptr);
+            func_ptr(#arg_names)
         }
     };
     (name_string, thunk)
