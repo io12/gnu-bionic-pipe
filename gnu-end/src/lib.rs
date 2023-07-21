@@ -4,6 +4,7 @@ pub use generated::*;
 
 use std::{
     arch::global_asm,
+    env,
     ffi::{CString, OsString},
     iter::once,
     os::unix::prelude::OsStringExt,
@@ -111,23 +112,24 @@ fn hex_fmt(u: usize) -> CString {
 }
 
 extern "C" fn do_exec() -> ! {
-    let path = "/tmp/libgnubionicpipe-bionic-end";
+    let ld_path = "/system/bin/linker64";
+    let bin_path = env::var("LIBGNUBIONICPIPE_BIONIC_END_PATH").unwrap();
     let data = include_bytes!("../build-inputs/bionic-end");
-    std::fs::write(path, data).unwrap();
+    std::fs::write(&bin_path, data).unwrap();
     let return_pad_addr = hex_fmt(return_pad as usize);
     let table_addr = hex_fmt(unsafe { TABLE.as_mut_ptr() } as usize);
     let symbols = FUNC_NAMES.into_iter().map(str_to_c_string);
     // Calling the program directly instead of through the linker works,
     // except then the linker goes through a code path that queries /proc/self/exe,
     // which breaks the userland exec.
-    let args = once(str_to_c_string("/system/bin/linker64"))
-        .chain(once(str_to_c_string(path)))
+    let args = once(str_to_c_string(ld_path))
+        .chain(once(string_to_c_string(bin_path)))
         .chain(once(return_pad_addr))
         .chain(once(table_addr))
         .chain(once(str_to_c_string("libvulkan.so")))
         .chain(symbols)
         .collect::<Vec<CString>>();
-    let env = std::env::vars_os()
+    let env = env::vars_os()
         .filter(|(var, _)| var != "LD_PRELOAD")
         .map(|(var, val)| {
             let s = [var, OsString::from("="), val]
@@ -137,7 +139,7 @@ extern "C" fn do_exec() -> ! {
             CString::new(s).unwrap()
         })
         .collect::<Vec<CString>>();
-    userland_execve::exec(Path::new(path), &args, &env)
+    userland_execve::exec(Path::new(ld_path), &args, &env)
 }
 
 unsafe fn init() {
