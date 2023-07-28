@@ -14,29 +14,42 @@ use std::{
 static mut INITIALIZED: bool = false;
 static mut TABLE: [usize; FUNC_NAMES.len()] = [0; FUNC_NAMES.len()];
 static mut SAVED_STACK_PTR: usize = 0;
-static mut SAVED_FRAME_PTR: usize = 0;
-#[cfg(target_arch = "aarch64")]
-static mut SAVED_LR: usize = 0;
 
 #[cfg(target_arch = "x86_64")]
 global_asm!(
     "load_thunks_asm:",
+    // Save callee-saved registers
+    "  push rbp",
+    "  push r15",
+    "  push r14",
+    "  push r13",
+    "  push r12",
+    "  push rbx",
+    "  ",
+    // Save stack pointer
     "  mov [rip + {}], rsp",
-    "  mov [rip + {}], rbp",
+    "  ",
     "  jmp {}",
     sym SAVED_STACK_PTR,
-    sym SAVED_FRAME_PTR,
     sym do_exec
 );
 
 #[cfg(target_arch = "x86_64")]
 global_asm!(
     "return_pad:",
+    // Restore stack pointer
     "  mov rsp, [rip + {}]",
-    "  mov rbp, [rip + {}]",
+    "  ",
+    // Restore callee-saved registers
+    "  pop rbx",
+    "  pop r12",
+    "  pop r13",
+    "  pop r14",
+    "  pop r15",
+    "  pop rbp",
+    "  ",
     "  ret",
     sym SAVED_STACK_PTR,
-    sym SAVED_FRAME_PTR,
 );
 
 #[cfg(target_arch = "aarch64")]
@@ -46,23 +59,22 @@ global_asm!(
     "  .p2align 2",
     "  .type load_thunks_asm,@function",
     "load_thunks_asm:",
+    // Save callee-saved registers
+    "  stp x29, x30, [sp, #-96]!",
+    "  stp x28, x27, [sp, #16]",
+    "  stp x26, x25, [sp, #32]",
+    "  stp x24, x23, [sp, #48]",
+    "  stp x22, x21, [sp, #64]",
+    "  stp x20, x19, [sp, #80]",
+    "  ",
+    // Save stack pointer
     "  adrp x0, {sp}",
     "  add x0, x0, :lo12:{sp}",
     "  mov x1, sp",
     "  str x1, [x0]",
     "  ",
-    "  adrp x0, {fp}",
-    "  add x0, x0, :lo12:{fp}",
-    "  str fp, [x0]",
-    "  ",
-    "  adrp x0, {lr}",
-    "  add x0, x0, :lo12:{lr}",
-    "  str lr, [x0]",
-    "  ",
     "  b {do_exec}",
     sp = sym SAVED_STACK_PTR,
-    fp = sym SAVED_FRAME_PTR,
-    lr = sym SAVED_LR,
     do_exec = sym do_exec
 );
 
@@ -73,23 +85,22 @@ global_asm!(
     "  .p2align 2",
     "  .type return_pad,@function",
     "return_pad:",
+    // Restore stack pointer
     "  adrp x0, {sp}",
     "  add x0, x0, :lo12:{sp}",
     "  ldr x0, [x0]",
     "  mov sp, x0",
     "  ",
-    "  adrp x0, {fp}",
-    "  add x0, x0, :lo12:{fp}",
-    "  ldr fp, [x0]",
-    "  ",
-    "  adrp x0, {lr}",
-    "  add x0, x0, :lo12:{lr}",
-    "  ldr lr, [x0]",
+    // Restore callee-saved registers
+    "  ldp x20, x19, [sp, #80]",
+    "  ldp x22, x21, [sp, #64]",
+    "  ldp x24, x23, [sp, #48]",
+    "  ldp x26, x25, [sp, #32]",
+    "  ldp x28, x27, [sp, #16]",
+    "  ldp x29, x30, [sp], #96",
     "  ",
     "  ret",
     sp = sym SAVED_STACK_PTR,
-    fp = sym SAVED_FRAME_PTR,
-    lr = sym SAVED_LR,
 );
 
 extern "C" {
