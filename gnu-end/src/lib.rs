@@ -26,6 +26,15 @@ global_asm!(
     "  push r12",
     "  push rbx",
     "  ",
+    // Save thread-local storage
+    "  push fs",
+    "  sub rsp, 0x100",
+    "  mov rax, SYS_get_thread_area",
+    "  mov rdi, rsp",
+    "  syscall",
+    "  test rax, rax",
+    "  jnz abort",
+    "  ",
     // Save stack pointer
     "  mov [rip + {}], rsp",
     "  ",
@@ -39,6 +48,15 @@ global_asm!(
     "return_pad:",
     // Restore stack pointer
     "  mov rsp, [rip + {}]",
+    "  ",
+    // Restore thread-local storage
+    "  mov rax, SYS_set_thread_area",
+    "  mov rdi, rsp",
+    "  syscall",
+    "  test rax, rax",
+    "  jnz abort",
+    "  add rsp, 0x100",
+    "  pop fs",
     "  ",
     // Restore callee-saved registers
     "  pop rbx",
@@ -60,12 +78,17 @@ global_asm!(
     "  .type load_thunks_asm,@function",
     "load_thunks_asm:",
     // Save callee-saved registers
-    "  stp x29, x30, [sp, #-96]!",
+    "  stp x29, x30, [sp, #-112]!",
     "  stp x28, x27, [sp, #16]",
     "  stp x26, x25, [sp, #32]",
     "  stp x24, x23, [sp, #48]",
     "  stp x22, x21, [sp, #64]",
     "  stp x20, x19, [sp, #80]",
+    "  ",
+    // Save thread-local storage
+    "  mrs x0, tpidr_el0",
+    "  mrs x1, fpcr",
+    "  stp x0, x1, [sp, #96]",
     "  ",
     // Save stack pointer
     "  adrp x0, {sp}",
@@ -91,13 +114,18 @@ global_asm!(
     "  ldr x0, [x0]",
     "  mov sp, x0",
     "  ",
+    // Restore thread-local storage
+    "  ldp x0, x1, [sp, #96]",
+    "  msr tpidr_el0, x0",
+    "  msr fpcr, x1",
+    "  ",
     // Restore callee-saved registers
     "  ldp x20, x19, [sp, #80]",
     "  ldp x22, x21, [sp, #64]",
     "  ldp x24, x23, [sp, #48]",
     "  ldp x26, x25, [sp, #32]",
     "  ldp x28, x27, [sp, #16]",
-    "  ldp x29, x30, [sp], #96",
+    "  ldp x29, x30, [sp], #112",
     "  ",
     "  ret",
     sp = sym SAVED_STACK_PTR,
