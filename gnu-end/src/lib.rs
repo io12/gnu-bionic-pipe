@@ -234,7 +234,7 @@ extern "C" fn do_exec() -> ! {
         .chain(symbols)
         .collect::<Vec<CString>>();
     let env = env::vars_os()
-        .filter(|(var, _)| var != "LD_PRELOAD")
+        .filter(|(var, _)| var != "LD_PRELOAD" && var != "LD_LIBRARY_PATH")
         .map(|(var, val)| {
             let s = [var, OsString::from("="), val]
                 .into_iter()
