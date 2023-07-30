@@ -217,6 +217,7 @@ name = "gnu-end"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "libc",
  "prettyplease",
  "proc-macro2",
  "quote",

@@ -16,6 +16,18 @@ static mut TABLE: [usize; FUNC_NAMES.len()] = [0; FUNC_NAMES.len()];
 static mut SAVED_STACK_PTR: usize = 0;
 
 #[cfg(target_arch = "x86_64")]
+static mut GNU_TLS: [u8; 0x100] = [0; 0x100];
+
+#[cfg(target_arch = "x86_64")]
+static mut BIONIC_TLS: [u8; 0x100] = [0; 0x100];
+
+#[cfg(target_arch = "aarch64")]
+static mut GNU_TLS: usize = 0;
+
+#[cfg(target_arch = "aarch64")]
+static mut BIONIC_TLS: usize = 0;
+
+#[cfg(target_arch = "x86_64")]
 global_asm!(
     "load_thunks_asm:",
     // Save callee-saved registers
@@ -26,36 +38,42 @@ global_asm!(
     "  push r12",
     "  push rbx",
     "  ",
-    // Save thread-local storage
+    // Save GNU thread-local storage
     "  push fs",
-    "  sub rsp, 0x100",
     "  mov rax, SYS_get_thread_area",
-    "  mov rdi, rsp",
+    "  mov rdi, {gnu_tls}",
     "  syscall",
     "  test rax, rax",
     "  jnz abort",
     "  ",
     // Save stack pointer
-    "  mov [rip + {}], rsp",
+    "  mov [rip + {sp}], rsp",
     "  ",
-    "  jmp {}",
-    sym SAVED_STACK_PTR,
-    sym do_exec
+    "  jmp {do_exec_func}",
+    gnu_tls = sym GNU_TLS,
+    sp = sym SAVED_STACK_PTR,
+    do_exec_func = sym do_exec,
 );
 
 #[cfg(target_arch = "x86_64")]
 global_asm!(
     "return_pad:",
-    // Restore stack pointer
-    "  mov rsp, [rip + {}]",
-    "  ",
-    // Restore thread-local storage
-    "  mov rax, SYS_set_thread_area",
-    "  mov rdi, rsp",
+    // Save Bionic thread-local storage
+    "  mov rax, SYS_get_thread_area",
+    "  mov rdi, {bionic_tls}",
     "  syscall",
     "  test rax, rax",
     "  jnz abort",
-    "  add rsp, 0x100",
+    "  ",
+    // Restore stack pointer
+    "  mov rsp, [rip + {sp}]",
+    "  ",
+    // Restore GNU thread-local storage
+    "  mov rax, SYS_set_thread_area",
+    "  mov rdi, {gnu_tls}",
+    "  syscall",
+    "  test rax, rax",
+    "  jnz abort",
     "  pop fs",
     "  ",
     // Restore callee-saved registers
@@ -67,7 +85,9 @@ global_asm!(
     "  pop rbp",
     "  ",
     "  ret",
-    sym SAVED_STACK_PTR,
+    sp = sym SAVED_STACK_PTR,
+    gnu_tls = sym GNU_TLS,
+    bionic_tls = sym BIONIC_TLS,
 );
 
 #[cfg(target_arch = "aarch64")]
@@ -78,17 +98,18 @@ global_asm!(
     "  .type load_thunks_asm,@function",
     "load_thunks_asm:",
     // Save callee-saved registers
-    "  stp x29, x30, [sp, #-112]!",
+    "  stp x29, x30, [sp, #-96]!",
     "  stp x28, x27, [sp, #16]",
     "  stp x26, x25, [sp, #32]",
     "  stp x24, x23, [sp, #48]",
     "  stp x22, x21, [sp, #64]",
     "  stp x20, x19, [sp, #80]",
     "  ",
-    // Save thread-local storage
-    "  mrs x0, tpidr_el0",
-    "  mrs x1, fpcr",
-    "  stp x0, x1, [sp, #96]",
+    // Save GNU thread-local storage
+    "  adrp x0, {gnu_tls}",
+    "  add x0, x0, :lo12:{gnu_tls}",
+    "  mrs x1, tpidr_el0",
+    "  str x1, [x0]",
     "  ",
     // Save stack pointer
     "  adrp x0, {sp}",
@@ -97,8 +118,9 @@ global_asm!(
     "  str x1, [x0]",
     "  ",
     "  b {do_exec}",
+    gnu_tls = sym GNU_TLS,
     sp = sym SAVED_STACK_PTR,
-    do_exec = sym do_exec
+    do_exec = sym do_exec,
 );
 
 #[cfg(target_arch = "aarch64")]
@@ -108,16 +130,23 @@ global_asm!(
     "  .p2align 2",
     "  .type return_pad,@function",
     "return_pad:",
+    // Save Bionic thread-local storage
+    "  adrp x0, {bionic_tls}",
+    "  add x0, x0, :lo12:{bionic_tls}",
+    "  mrs x1, tpidr_el0",
+    "  str x1, [x0]",
+    "  ",
     // Restore stack pointer
     "  adrp x0, {sp}",
     "  add x0, x0, :lo12:{sp}",
     "  ldr x0, [x0]",
     "  mov sp, x0",
     "  ",
-    // Restore thread-local storage
-    "  ldp x0, x1, [sp, #96]",
+    // Restore GNU thread-local storage
+    "  adrp x0, {gnu_tls}",
+    "  add x0, x0, :lo12:{gnu_tls}",
+    "  ldr x0, [x0]",
     "  msr tpidr_el0, x0",
-    "  msr fpcr, x1",
     "  ",
     // Restore callee-saved registers
     "  ldp x20, x19, [sp, #80]",
@@ -125,15 +154,51 @@ global_asm!(
     "  ldp x24, x23, [sp, #48]",
     "  ldp x26, x25, [sp, #32]",
     "  ldp x28, x27, [sp, #16]",
-    "  ldp x29, x30, [sp], #112",
+    "  ldp x29, x30, [sp], #96",
     "  ",
     "  ret",
     sp = sym SAVED_STACK_PTR,
+    gnu_tls = sym GNU_TLS,
+    bionic_tls = sym BIONIC_TLS,
 );
 
 extern "C" {
     fn load_thunks_asm();
     fn return_pad();
+}
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn set_tls(tls: &'static [u8]) {
+    let result = libc::syscall(libc::SYS_set_thread_area, tls.as_ptr());
+    assert!(result == 0);
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn set_tls(tls: usize) {
+    std::arch::asm!(
+        "msr tpidr_el0, {tls}",
+        tls = in(reg) tls,
+    );
+}
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn set_gnu_tls() {
+    set_tls(&GNU_TLS)
+}
+
+#[cfg(target_arch = "x86_64")]
+unsafe fn set_bionic_tls() {
+    set_tls(&BIONIC_TLS)
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn set_gnu_tls() {
+    set_tls(GNU_TLS)
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn set_bionic_tls() {
+    set_tls(BIONIC_TLS)
 }
 
 fn string_to_c_string(s: String) -> CString {

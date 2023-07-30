@@ -45,13 +45,19 @@ fn make_thunk(index: usize, extern_c: &syn::ItemForeignMod) -> (String, TokenStr
             if !crate::INITIALIZED {
                 crate::init();
             }
+
             let void_ptr = crate::TABLE[#index] as *mut ::std::os::raw::c_void;
             assert!(!void_ptr.is_null(), #not_loaded_message);
             let func_ptr = ::std::mem::transmute::<
                 *mut ::std::os::raw::c_void,
                 unsafe extern "C" fn(#args) #return_type,
             >(void_ptr);
-            func_ptr(#arg_names)
+
+            crate::set_bionic_tls();
+            let result = func_ptr(#arg_names);
+            crate::set_gnu_tls();
+
+            result
         }
     };
     (name_string, thunk)
