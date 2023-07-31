@@ -4,7 +4,7 @@ use std::{iter::once, path::Path};
 
 type SynFuncArgs = syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>;
 
-fn make_thunk_body_vk_get_instance_proc_addr(func_names: &[String]) -> TokenStream {
+fn make_thunk_body_proc_addr(func_names: &[String]) -> TokenStream {
     let c_void = quote!(::std::os::raw::c_void);
     let match_arms = func_names
         .iter()
@@ -23,7 +23,6 @@ fn make_thunk_body_vk_get_instance_proc_addr(func_names: &[String]) -> TokenStre
         })
         .collect::<TokenStream>();
     quote! {
-        let _ = instance;
         match ::std::ffi::CStr::from_ptr(pName).to_bytes() {
             #match_arms
             _ => None,
@@ -83,12 +82,10 @@ fn make_thunk(index: usize, sig: &syn::Signature, func_names: &[String]) -> Toke
     let name = &sig.ident;
     let args = &sig.inputs;
     let return_type = &sig.output;
+    let proc_addr_body = make_thunk_body_proc_addr(func_names);
     let thunk_body = match name.to_string().as_str() {
-        "vkGetInstanceProcAddr" => make_thunk_body_vk_get_instance_proc_addr(func_names),
-        "vkGetDeviceProcAddr" => quote! {
-            let _ = (device, pName);
-            ::std::unimplemented!()
-        },
+        "vkGetInstanceProcAddr" => quote! { let _ = instance; #proc_addr_body },
+        "vkGetDeviceProcAddr" => quote! { let _ = device; #proc_addr_body },
         _ => make_thunk_body(index, name, args, return_type),
     };
     quote! {
