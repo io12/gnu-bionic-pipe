@@ -2,25 +2,65 @@ use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use std::{iter::once, path::Path};
 
-fn make_thunk(index: usize, extern_c: &syn::ItemForeignMod) -> (String, TokenStream) {
-    assert!(extern_c.attrs.is_empty());
-    assert!(extern_c.unsafety.is_none());
-    assert_eq!(extern_c.abi.name.as_ref().unwrap().value(), "C");
-    assert_eq!(extern_c.items.len(), 1);
-    let c_item = &extern_c.items[0];
-    let c_fn = match c_item {
-        syn::ForeignItem::Fn(c_fn) => c_fn,
-        _ => panic!("item in `extern \"C\"` block is not an `fn`"),
-    };
-    assert!(matches!(c_fn.vis, syn::Visibility::Public(_)));
-    assert!(c_fn.sig.constness.is_none());
-    assert!(c_fn.sig.asyncness.is_none());
-    assert!(c_fn.sig.unsafety.is_none());
-    assert!(c_fn.sig.abi.is_none());
-    assert!(c_fn.sig.variadic.is_none());
-    let name = &c_fn.sig.ident;
-    let args = &c_fn.sig.inputs;
-    let return_type = &c_fn.sig.output;
+type SynFuncArgs = syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>;
+
+fn make_thunk_body_vk_get_instance_proc_addr(func_names: &[String]) -> TokenStream {
+    let c_void = quote!(::std::os::raw::c_void);
+    let match_arms = func_names
+        .iter()
+        .map(|name_string| {
+            let name_bytes =
+                syn::LitByteStr::new(name_string.as_bytes(), proc_macro2::Span::call_site());
+            let name_ident = quote::format_ident!("{name_string}");
+            quote! {
+                #name_bytes => Some(
+                    ::std::mem::transmute::<
+                        *const #c_void,
+                        unsafe extern "C" fn(),
+                    >(#name_ident as *const #c_void)
+                ),
+            }
+        })
+        .collect::<TokenStream>();
+    quote! {
+        let _ = instance;
+        match ::std::ffi::CStr::from_ptr(pName).to_bytes() {
+            #match_arms
+            _ => None,
+        }
+    }
+}
+
+fn make_thunk_body(
+    index: usize,
+    name: &syn::Ident,
+    args: &SynFuncArgs,
+    return_type: &syn::ReturnType,
+) -> TokenStream {
+    let c_void = quote!(::std::os::raw::c_void);
+    let not_loaded_message = format!("{name} not loaded");
+    let arg_names = get_arg_names(args);
+    quote! {
+        if !crate::INITIALIZED {
+            crate::init();
+        }
+
+        let void_ptr = crate::TABLE[#index] as *mut #c_void;
+        assert!(!void_ptr.is_null(), #not_loaded_message);
+        let func_ptr = ::std::mem::transmute::<
+            *mut #c_void,
+            unsafe extern "C" fn(#args) #return_type,
+        >(void_ptr);
+
+        crate::set_bionic_tls();
+        let result = func_ptr(#arg_names);
+        crate::set_gnu_tls();
+
+        result
+    }
+}
+
+fn get_arg_names(args: &SynFuncArgs) -> TokenStream {
     let arg_names = args.iter().map(|arg| match arg {
         syn::FnArg::Receiver(_) => panic!("unexpected `self` in `extern \"C\"` `fn`"),
         syn::FnArg::Typed(pat_type) => match &*pat_type.pat {
@@ -36,31 +76,59 @@ fn make_thunk(index: usize, extern_c: &syn::ItemForeignMod) -> (String, TokenStr
             }
         },
     });
-    let arg_names = quote!(#(#arg_names),*);
-    let name_string = name.to_token_stream().to_string();
-    let not_loaded_message = format!("{name} not loaded");
-    let thunk = quote! {
+    quote!(#(#arg_names),*)
+}
+
+fn make_thunk(index: usize, sig: &syn::Signature, func_names: &[String]) -> TokenStream {
+    let name = &sig.ident;
+    let args = &sig.inputs;
+    let return_type = &sig.output;
+    let thunk_body = match name.to_string().as_str() {
+        "vkGetInstanceProcAddr" => make_thunk_body_vk_get_instance_proc_addr(func_names),
+        "vkGetDeviceProcAddr" => quote! {
+            let _ = (device, pName);
+            ::std::unimplemented!()
+        },
+        _ => make_thunk_body(index, name, args, return_type),
+    };
+    quote! {
         #[no_mangle]
         pub unsafe extern "C" fn #name(#args) #return_type {
-            if !crate::INITIALIZED {
-                crate::init();
-            }
-
-            let void_ptr = crate::TABLE[#index] as *mut ::std::os::raw::c_void;
-            assert!(!void_ptr.is_null(), #not_loaded_message);
-            let func_ptr = ::std::mem::transmute::<
-                *mut ::std::os::raw::c_void,
-                unsafe extern "C" fn(#args) #return_type,
-            >(void_ptr);
-
-            crate::set_bionic_tls();
-            let result = func_ptr(#arg_names);
-            crate::set_gnu_tls();
-
-            result
+            #thunk_body
         }
+    }
+}
+
+fn extern_c_to_signature(extern_c: &syn::ItemForeignMod) -> &syn::Signature {
+    assert!(extern_c.attrs.is_empty());
+    assert!(extern_c.unsafety.is_none());
+    assert_eq!(extern_c.abi.name.as_ref().unwrap().value(), "C");
+    assert_eq!(extern_c.items.len(), 1);
+    let c_item = &extern_c.items[0];
+    let c_fn = match c_item {
+        syn::ForeignItem::Fn(c_fn) => c_fn,
+        _ => panic!("item in `extern \"C\"` block is not an `fn`"),
     };
-    (name_string, thunk)
+    assert!(matches!(c_fn.vis, syn::Visibility::Public(_)));
+    let sig = &c_fn.sig;
+    assert!(sig.constness.is_none());
+    assert!(sig.asyncness.is_none());
+    assert!(sig.unsafety.is_none());
+    assert!(sig.abi.is_none());
+    assert!(sig.variadic.is_none());
+    sig
+}
+
+fn get_function_signatures(bindings: &syn::File) -> Vec<&syn::Signature> {
+    bindings
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            syn::Item::ForeignMod(extern_c) => Some(extern_c),
+            _ => None,
+        })
+        .map(extern_c_to_signature)
+        .collect()
 }
 
 fn main() {
@@ -75,24 +143,23 @@ fn main() {
     let bindings = syn::parse_file(&bindings).unwrap();
     assert!(bindings.shebang.is_none());
     assert!(bindings.attrs.is_empty());
-    let type_defs = bindings.items.iter().map(|item| match item {
-        syn::Item::ForeignMod(_) => TokenStream::new(),
-        item => item.to_token_stream(),
-    });
-    let (func_names, thunk_defs): (Vec<String>, Vec<TokenStream>) = bindings
-        .items
+    let sigs = get_function_signatures(&bindings);
+    let func_names = sigs
         .iter()
-        .filter_map(|item| match item {
-            syn::Item::ForeignMod(extern_c) => Some(extern_c),
-            _ => None,
-        })
-        .enumerate()
-        .map(|(i, extern_c)| make_thunk(i, extern_c))
-        .unzip();
+        .map(|sig| sig.ident.to_string())
+        .collect::<Vec<String>>();
     let num_funcs = func_names.len();
     let func_names_def = quote! {
         pub(crate) const FUNC_NAMES: [&str; #num_funcs] = [#(#func_names),*];
     };
+    let type_defs = bindings.items.iter().map(|item| match item {
+        syn::Item::ForeignMod(_) | syn::Item::Impl(_) => TokenStream::new(),
+        item => item.to_token_stream(),
+    });
+    let thunk_defs = sigs
+        .iter()
+        .enumerate()
+        .map(|(i, sig)| make_thunk(i, sig, &func_names));
     let generated_file = once(func_names_def)
         .chain(type_defs)
         .chain(thunk_defs)
