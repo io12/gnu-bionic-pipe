@@ -8,12 +8,13 @@ fn make_thunk_body_proc_addr(func_names: &[String]) -> TokenStream {
     let c_void = quote!(::std::os::raw::c_void);
     let match_arms = func_names
         .iter()
-        .map(|name_string| {
+        .enumerate()
+        .map(|(index, name_string)| {
             let name_bytes =
                 syn::LitByteStr::new(name_string.as_bytes(), proc_macro2::Span::call_site());
             let name_ident = quote::format_ident!("{name_string}");
             quote! {
-                #name_bytes => Some(
+                #name_bytes if crate::TABLE[#index] != 0 => Some(
                     ::std::mem::transmute::<
                         *const #c_void,
                         unsafe extern "C" fn(),
