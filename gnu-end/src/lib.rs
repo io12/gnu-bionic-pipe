@@ -247,8 +247,8 @@ extern "C" fn do_exec() -> ! {
 }
 
 unsafe fn init() {
-    assert!(!INITIALIZED);
-    load_thunks_asm();
-    assert!(!INITIALIZED);
-    INITIALIZED = true;
+    if !INITIALIZED {
+        load_thunks_asm();
+        INITIALIZED = true;
+    }
 }

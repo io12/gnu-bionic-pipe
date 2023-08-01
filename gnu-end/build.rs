@@ -24,6 +24,8 @@ fn make_thunk_body_proc_addr(func_names: &[String]) -> TokenStream {
         })
         .collect::<TokenStream>();
     quote! {
+        crate::init();
+
         match ::std::ffi::CStr::from_ptr(pName).to_bytes() {
             #match_arms
             _ => None,
@@ -41,9 +43,7 @@ fn make_thunk_body(
     let not_loaded_message = format!("{name} not loaded");
     let arg_names = get_arg_names(args);
     quote! {
-        if !crate::INITIALIZED {
-            crate::init();
-        }
+        crate::init();
 
         let void_ptr = crate::TABLE[#index] as *mut #c_void;
         assert!(!void_ptr.is_null(), #not_loaded_message);
