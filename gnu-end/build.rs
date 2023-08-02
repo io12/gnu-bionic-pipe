@@ -38,6 +38,7 @@ fn make_thunk_body(
     name: &syn::Ident,
     args: &SynFuncArgs,
     return_type: &syn::ReturnType,
+    change_ouput: TokenStream,
 ) -> TokenStream {
     let c_void = quote!(::std::os::raw::c_void);
     let not_loaded_message = format!("{name} not loaded");
@@ -55,6 +56,8 @@ fn make_thunk_body(
         crate::set_bionic_tls();
         let result = func_ptr(#arg_names);
         crate::set_gnu_tls();
+
+        #change_ouput
 
         result
     }
@@ -86,7 +89,31 @@ fn make_thunk(index: usize, sig: &syn::Signature) -> TokenStream {
     let thunk_body = match name.to_string().as_str() {
         "vkGetInstanceProcAddr" => quote! { let _ = instance; get_proc_addr(pName) },
         "vkGetDeviceProcAddr" => quote! { let _ = device; get_proc_addr(pName) },
-        _ => make_thunk_body(index, name, args, return_type),
+        "vkEnumerateDeviceExtensionProperties" => {
+            let change_output = quote! {
+                use ::std::ffi::c_char;
+                let old_name = b"VK_EXT_calibrated_timestamps\0"
+                    .iter()
+                    .map(|c| *c as c_char)
+                    .collect::<Vec<c_char>>();
+                let new_name = b"libgnubionicpipe_disabled_feature\0"
+                    .iter()
+                    .map(|c| *c as c_char)
+                    .collect::<Vec<c_char>>();
+                if result == VkResult_VK_SUCCESS && !pProperties.is_null() {
+                    let n: isize = pPropertyCount.read().try_into().unwrap();
+                    for i in 0..n {
+                        let props = &mut pProperties.offset(i).read();
+                        let name = &mut props.extensionName;
+                        if name.starts_with(&old_name) {
+                            name[0..new_name.len()].copy_from_slice(&new_name);
+                        }
+                    }
+                }
+            };
+            make_thunk_body(index, name, args, return_type, change_output)
+        }
+        _ => make_thunk_body(index, name, args, return_type, quote!()),
     };
     quote! {
         #[no_mangle]
