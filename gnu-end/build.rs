@@ -4,8 +4,7 @@ use std::{iter::once, path::Path};
 
 type SynFuncArgs = syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>;
 
-fn make_thunk_body_proc_addr(func_names: &[String]) -> TokenStream {
-    let c_void = quote!(::std::os::raw::c_void);
+fn make_get_proc_addr(func_names: &[String]) -> TokenStream {
     let match_arms = func_names
         .iter()
         .enumerate()
@@ -14,21 +13,22 @@ fn make_thunk_body_proc_addr(func_names: &[String]) -> TokenStream {
                 syn::LitByteStr::new(name_string.as_bytes(), proc_macro2::Span::call_site());
             let name_ident = quote::format_ident!("{name_string}");
             quote! {
-                #name_bytes if crate::TABLE[#index] != 0 => Some(
-                    ::std::mem::transmute::<
-                        *const #c_void,
-                        unsafe extern "C" fn(),
-                    >(#name_ident as *const #c_void)
-                ),
+                #name_bytes if crate::TABLE[#index] != 0 =>
+                    #name_ident as *const ::std::ffi::c_void,
             }
         })
         .collect::<TokenStream>();
     quote! {
-        crate::init();
+        unsafe fn get_proc_addr(name: *const ::std::ffi::c_char) -> PFN_vkVoidFunction {
+            crate::init();
 
-        match ::std::ffi::CStr::from_ptr(pName).to_bytes() {
-            #match_arms
-            _ => None,
+            let name = ::std::ffi::CStr::from_ptr(name);
+            let name = name.to_bytes();
+            let addr = match name {
+                #match_arms
+                _ => ::std::ptr::null(),
+            };
+            ::std::mem::transmute(addr)
         }
     }
 }
@@ -79,14 +79,13 @@ fn get_arg_names(args: &SynFuncArgs) -> TokenStream {
     quote!(#(#arg_names),*)
 }
 
-fn make_thunk(index: usize, sig: &syn::Signature, func_names: &[String]) -> TokenStream {
+fn make_thunk(index: usize, sig: &syn::Signature) -> TokenStream {
     let name = &sig.ident;
     let args = &sig.inputs;
     let return_type = &sig.output;
-    let proc_addr_body = make_thunk_body_proc_addr(func_names);
     let thunk_body = match name.to_string().as_str() {
-        "vkGetInstanceProcAddr" => quote! { let _ = instance; #proc_addr_body },
-        "vkGetDeviceProcAddr" => quote! { let _ = device; #proc_addr_body },
+        "vkGetInstanceProcAddr" => quote! { let _ = instance; get_proc_addr(pName) },
+        "vkGetDeviceProcAddr" => quote! { let _ = device; get_proc_addr(pName) },
         _ => make_thunk_body(index, name, args, return_type),
     };
     quote! {
@@ -154,12 +153,11 @@ fn main() {
         syn::Item::ForeignMod(_) | syn::Item::Impl(_) => TokenStream::new(),
         item => item.to_token_stream(),
     });
-    let thunk_defs = sigs
-        .iter()
-        .enumerate()
-        .map(|(i, sig)| make_thunk(i, sig, &func_names));
+    let get_proc_addr = make_get_proc_addr(&func_names);
+    let thunk_defs = sigs.iter().enumerate().map(|(i, sig)| make_thunk(i, sig));
     let generated_file = once(func_names_def)
         .chain(type_defs)
+        .chain(once(get_proc_addr))
         .chain(thunk_defs)
         .collect::<TokenStream>()
         .to_string();
