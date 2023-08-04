@@ -13,8 +13,10 @@ fn make_get_proc_addr(func_names: &[String]) -> TokenStream {
                 syn::LitByteStr::new(name_string.as_bytes(), proc_macro2::Span::call_site());
             let name_ident = quote::format_ident!("{name_string}");
             quote! {
-                #name_bytes if crate::TABLE[#index] != 0 =>
+                #name_bytes => (
+                    #index,
                     #name_ident as *const ::std::ffi::c_void,
+                ),
             }
         })
         .collect::<TokenStream>();
@@ -24,11 +26,14 @@ fn make_get_proc_addr(func_names: &[String]) -> TokenStream {
 
             let name = ::std::ffi::CStr::from_ptr(name);
             let name = name.to_bytes();
-            let addr = match name {
+            let (index, ptr) = match name {
                 #match_arms
-                _ => ::std::ptr::null(),
+                _ => return None,
             };
-            ::std::mem::transmute(addr)
+            if crate::TABLE[index] == 0 {
+                return None;
+            }
+            ::std::mem::transmute(ptr)
         }
     }
 }
