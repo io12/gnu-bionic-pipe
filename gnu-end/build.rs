@@ -96,22 +96,22 @@ fn make_thunk(index: usize, sig: &syn::Signature) -> TokenStream {
         "vkGetDeviceProcAddr" => quote! { let _ = device; get_proc_addr(pName) },
         "vkEnumerateDeviceExtensionProperties" => {
             let change_output = quote! {
-                use ::std::ffi::c_char;
-                let old_name = b"VK_EXT_calibrated_timestamps\0"
-                    .iter()
-                    .map(|c| *c as c_char)
-                    .collect::<Vec<c_char>>();
-                let new_name = b"libgnubionicpipe_disabled_feature\0"
-                    .iter()
-                    .map(|c| *c as c_char)
-                    .collect::<Vec<c_char>>();
+                use cstr::cstr;
+                use ::std::slice::from_raw_parts_mut;
+                use ::std::ffi::CStr;
+                let blocked_names = [
+                    cstr!("VK_EXT_calibrated_timestamps"),
+                    cstr!("VK_EXT_extended_dynamic_state2"),
+                ];
+                let new_name = cstr!("libgnubionicpipe_disabled_feature").as_ptr();
                 if result == VkResult_VK_SUCCESS && !pProperties.is_null() {
-                    let n: isize = pPropertyCount.read().try_into().unwrap();
-                    for i in 0..n {
-                        let props = &mut *pProperties.offset(i);
-                        let name = &mut props.extensionName;
-                        if name.starts_with(&old_name) {
-                            name[0..new_name.len()].copy_from_slice(&new_name);
+                    let len = *pPropertyCount as usize;
+                    let props = from_raw_parts_mut(pProperties, len);
+                    for prop in props {
+                        let name_buf = &mut prop.extensionName as *mut _;
+                        let name = CStr::from_ptr(name_buf);
+                        if blocked_names.contains(&name) {
+                            libc::strcpy(name_buf, new_name);
                         }
                     }
                 }
