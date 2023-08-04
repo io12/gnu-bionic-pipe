@@ -2,13 +2,15 @@ mod generated;
 
 pub use generated::*;
 
+use cstr::cstr;
 use std::{
     arch::global_asm,
     env,
-    ffi::{CString, OsString},
+    ffi::{CStr, CString, OsString},
     iter::once,
     os::unix::prelude::OsStringExt,
     path::Path,
+    slice::from_raw_parts_mut,
 };
 
 static mut INITIALIZED: bool = false;
@@ -199,6 +201,25 @@ unsafe fn set_gnu_tls() {
 #[cfg(target_arch = "aarch64")]
 unsafe fn set_bionic_tls() {
     set_tls(BIONIC_TLS)
+}
+
+unsafe fn dev_ext_props_deny(result: VkResult, len: *const u32, props: *mut VkExtensionProperties) {
+    let blocked_names = [
+        cstr!("VK_EXT_calibrated_timestamps"),
+        cstr!("VK_EXT_extended_dynamic_state2"),
+    ];
+    let new_name = cstr!("libgnubionicpipe_disabled_feature").as_ptr();
+    if result == VkResult_VK_SUCCESS && !props.is_null() {
+        let len = *len as usize;
+        let props = from_raw_parts_mut(props, len);
+        for prop in props {
+            let name_buf = &mut prop.extensionName as *mut _;
+            let name = CStr::from_ptr(name_buf);
+            if blocked_names.contains(&name) {
+                libc::strcpy(name_buf, new_name);
+            }
+        }
+    }
 }
 
 fn string_to_c_string(s: String) -> CString {

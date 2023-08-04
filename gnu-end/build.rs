@@ -96,25 +96,7 @@ fn make_thunk(index: usize, sig: &syn::Signature) -> TokenStream {
         "vkGetDeviceProcAddr" => quote! { let _ = device; get_proc_addr(pName) },
         "vkEnumerateDeviceExtensionProperties" => {
             let change_output = quote! {
-                use cstr::cstr;
-                use ::std::slice::from_raw_parts_mut;
-                use ::std::ffi::CStr;
-                let blocked_names = [
-                    cstr!("VK_EXT_calibrated_timestamps"),
-                    cstr!("VK_EXT_extended_dynamic_state2"),
-                ];
-                let new_name = cstr!("libgnubionicpipe_disabled_feature").as_ptr();
-                if result == VkResult_VK_SUCCESS && !pProperties.is_null() {
-                    let len = *pPropertyCount as usize;
-                    let props = from_raw_parts_mut(pProperties, len);
-                    for prop in props {
-                        let name_buf = &mut prop.extensionName as *mut _;
-                        let name = CStr::from_ptr(name_buf);
-                        if blocked_names.contains(&name) {
-                            libc::strcpy(name_buf, new_name);
-                        }
-                    }
-                }
+                crate::dev_ext_props_deny(result, pPropertyCount, pProperties);
             };
             make_thunk_body(index, name, args, return_type, change_output)
         }
