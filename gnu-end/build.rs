@@ -108,7 +108,7 @@ fn make_thunk(index: usize, sig: &syn::Signature) -> TokenStream {
                 if result == VkResult_VK_SUCCESS && !pProperties.is_null() {
                     let n: isize = pPropertyCount.read().try_into().unwrap();
                     for i in 0..n {
-                        let props = &mut pProperties.offset(i).read();
+                        let props = &mut *pProperties.offset(i);
                         let name = &mut props.extensionName;
                         if name.starts_with(&old_name) {
                             name[0..new_name.len()].copy_from_slice(&new_name);
