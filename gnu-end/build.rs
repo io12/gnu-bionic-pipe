@@ -48,6 +48,14 @@ fn make_thunk_body(
     let c_void = quote!(::std::os::raw::c_void);
     let not_loaded_message = format!("{name} not loaded");
     let arg_names = get_arg_names(args);
+    let debug_fmt = format!(
+        "libgnubionicpipe trace: {name}({}) -> {{result:?}}",
+        arg_names
+            .clone()
+            .map(|arg| format!("{arg}={{{arg}:?}}"))
+            .collect::<Vec<String>>()
+            .join(", ")
+    );
     quote! {
         crate::init();
 
@@ -59,8 +67,12 @@ fn make_thunk_body(
         >(void_ptr);
 
         crate::set_bionic_tls();
-        let result = func_ptr(#arg_names);
+        let result = func_ptr(#(#arg_names),*);
         crate::set_gnu_tls();
+
+        if ::std::env::var_os("LIBGNUBIONICPIPE_TRACE").is_some() {
+            println!(#debug_fmt);
+        }
 
         #change_ouput
 
@@ -68,8 +80,8 @@ fn make_thunk_body(
     }
 }
 
-fn get_arg_names(args: &SynFuncArgs) -> TokenStream {
-    let arg_names = args.iter().map(|arg| match arg {
+fn get_arg_names(args: &SynFuncArgs) -> impl Iterator<Item = &syn::Ident> + Clone {
+    args.iter().map(|arg| match arg {
         syn::FnArg::Receiver(_) => panic!("unexpected `self` in `extern \"C\"` `fn`"),
         syn::FnArg::Typed(pat_type) => match &*pat_type.pat {
             syn::Pat::Ident(pat_ident) => {
@@ -77,14 +89,13 @@ fn get_arg_names(args: &SynFuncArgs) -> TokenStream {
                 assert!(pat_ident.by_ref.is_none());
                 assert!(pat_ident.mutability.is_none());
                 assert!(pat_ident.subpat.is_none());
-                pat_ident.ident.to_token_stream()
+                &pat_ident.ident
             }
             _ => {
                 panic!("bindgen generated an argument pattern more complex than just an identifier")
             }
         },
-    });
-    quote!(#(#arg_names),*)
+    })
 }
 
 fn make_thunk(index: usize, sig: &syn::Signature) -> TokenStream {
