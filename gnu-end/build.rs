@@ -30,7 +30,7 @@ fn make_get_proc_addr(func_names: &[String]) -> TokenStream {
                 #match_arms
                 _ => return None,
             };
-            if crate::TABLE[index] == 0 {
+            if crate::TABLE.with(|v| v.get()[index]) == 0 {
                 return None;
             }
             ::std::mem::transmute(ptr)
@@ -59,7 +59,7 @@ fn make_thunk_body(
     quote! {
         crate::init();
 
-        let void_ptr = crate::TABLE[#index] as *mut #c_void;
+        let void_ptr = crate::TABLE.with(|v| v.get()[#index]) as *mut #c_void;
         assert!(!void_ptr.is_null(), #not_loaded_message);
         let func_ptr = ::std::mem::transmute::<
             *mut #c_void,
@@ -172,7 +172,10 @@ fn main() {
         .collect::<Vec<String>>();
     let num_funcs = func_names.len();
     let func_names_def = quote! {
-        pub(crate) const FUNC_NAMES: [&str; #num_funcs] = [#(#func_names),*];
+        macro_rules! num_funcs {
+            () => { #num_funcs };
+        }
+        pub(crate) const FUNC_NAMES: [&str; num_funcs!()] = [#(#func_names),*];
     };
     let type_defs = bindings.items.iter().map(|item| match item {
         syn::Item::ForeignMod(_) | syn::Item::Impl(_) => TokenStream::new(),

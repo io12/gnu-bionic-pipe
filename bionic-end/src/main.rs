@@ -10,6 +10,8 @@ struct Args {
     return_addr: usize,
     #[clap(value_parser = parse_int::parse::<usize>)]
     table_addr: usize,
+    #[clap(value_parser = parse_int::parse::<usize>)]
+    sp: usize,
     library: OsString,
     symbols: Vec<OsString>,
 }
@@ -34,6 +36,6 @@ fn main() {
 
     // Jump to return address
     let return_ptr = args.return_addr as *const c_void;
-    let return_fn: unsafe extern "C" fn() = unsafe { std::mem::transmute(return_ptr) };
-    unsafe { return_fn() }
+    let return_fn: unsafe extern "C" fn(sp: usize) = unsafe { std::mem::transmute(return_ptr) };
+    unsafe { return_fn(args.sp) }
 }
