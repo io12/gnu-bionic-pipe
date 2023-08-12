@@ -131,7 +131,7 @@ global_asm!(
     "  ",
     // Save GNU thread-local storage
     "  mrs x0, tpidr_el0",
-    "  stp x0, x0, [sp, #-16]!",
+    "  str x0, [sp, #-16]!",
     "  ",
     "  mov x0, x19", // Table
     "  mov x1, sp", // Stack pointer
@@ -149,7 +149,7 @@ global_asm!(
     "  mrs x1, tpidr_el0",
     "  ",
     // Restore GNU thread-local storage
-    "  ldp x0, x0, [sp, #+16]!",
+    "  ldr x0, [sp], #16",
     "  msr tpidr_el0, x0",
     "  ",
     "  mov x2, sp", // Table
