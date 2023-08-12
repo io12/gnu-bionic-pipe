@@ -66,9 +66,12 @@ fn make_thunk_body(
             unsafe extern "C" fn(#args) #return_type,
         >(void_ptr);
 
+        let gnu_tls = crate::get_tls();
         crate::set_bionic_tls();
+
         let result = func_ptr(#(#arg_names),*);
-        crate::set_gnu_tls();
+
+        crate::set_tls(gnu_tls);
 
         if ::std::env::var_os("LIBGNUBIONICPIPE_TRACE").is_some() {
             println!(#debug_fmt);

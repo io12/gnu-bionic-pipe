@@ -13,8 +13,10 @@ use std::{
     os::unix::prelude::OsStringExt,
     path::Path,
     slice::from_raw_parts_mut,
-    thread::LocalKey,
 };
+
+#[cfg(target_arch = "aarch64")]
+use std::arch::asm;
 
 #[cfg(target_arch = "x86_64")]
 macro_rules! tls_size {
@@ -28,13 +30,7 @@ thread_local! {
     static TABLE: Cell<[usize; num_funcs!()]> = Cell::new([0; num_funcs!()]);
 
     #[cfg(target_arch = "x86_64")]
-    static GNU_TLS: Cell<[u8; tls_size!()]> = Cell::new([0; tls_size!()]);
-
-    #[cfg(target_arch = "x86_64")]
     static BIONIC_TLS: Cell<[u8; tls_size!()]> = Cell::new([0; tls_size!()]);
-
-    #[cfg(target_arch = "aarch64")]
-    static GNU_TLS: Cell<usize> = Cell::new(0);
 
     #[cfg(target_arch = "aarch64")]
     static BIONIC_TLS: Cell<usize> = Cell::new(0);
@@ -81,18 +77,16 @@ global_asm!(
     "  jnz abort",
     "  ",
     // Restore GNU thread-local storage
-    "  mov r12, rsp",
     "  mov rax, SYS_set_thread_area",
-    "  mov rdi, r12",
+    "  mov rdi, rsp",
     "  syscall",
     "  test rax, rax",
     "  jnz abort",
     concat!("  add rsp, ", tls_size!()),
     "  ",
     // Write saved data to thread-local global variables
-    "  mov rdi, r12", // GNU TLS
-    "  mov rsi, rbx", // Bionic TLS
-    "  mov rdx, rsp", // Table
+    "  mov rdi, rbx", // Bionic TLS
+    "  mov rsi, rsp", // Table
     "  call {write_saved_data_to_tls}",
     concat!("  sub add, 8 * ", num_funcs!()),
     "  ",
@@ -146,13 +140,13 @@ global_asm!(
     "  mov sp, x0",
     "  ",
     // Save Bionic thread-local storage
-    "  mrs x1, tpidr_el0",
+    "  mrs x0, tpidr_el0",
     "  ",
     // Restore GNU thread-local storage
-    "  ldr x0, [sp], #16",
-    "  msr tpidr_el0, x0",
+    "  ldr x2, [sp], #16",
+    "  msr tpidr_el0, x2",
     "  ",
-    "  mov x2, sp", // Table
+    "  mov x1, sp", // Table
     "  bl {write_saved_data_to_tls}",
     concat!("  mov x0, (8 * ", num_funcs!(), " + 0xf) & ~0xf"),
     "  add sp, sp, x0",
@@ -176,47 +170,50 @@ extern "C" {
 }
 
 #[cfg(target_arch = "x86_64")]
-unsafe fn set_tls(tls: &'static LocalKey<Cell<[u8; tls_size!()]>>) {
-    let tls = tls.with(|v| v.get());
+unsafe fn set_tls(tls: [u8; tls_size!()]) {
     let result = libc::syscall(libc::SYS_set_thread_area, tls.as_ptr());
     assert!(result == 0);
 }
 
-#[cfg(target_arch = "aarch64")]
-unsafe fn set_tls(tls: &'static LocalKey<Cell<usize>>) {
-    let tls = tls.with(|v| v.get());
-    std::arch::asm!(
-        "msr tpidr_el0, {tls}",
-        tls = in(reg) tls,
-    );
+#[cfg(target_arch = "x86_64")]
+unsafe fn get_tls() -> [u8; tls_size!()] {
+    let mut tls = [0u8; tls_size!()];
+    let result = libc::syscall(libc::SYS_get_thread_area, tls.as_mut_ptr());
+    assert!(result == 0);
+    tls
 }
 
-unsafe fn set_gnu_tls() {
-    set_tls(&GNU_TLS)
+#[cfg(target_arch = "aarch64")]
+unsafe fn set_tls(tls: usize) {
+    asm!("msr tpidr_el0, {tls}", tls = in(reg) tls);
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn get_tls() -> usize {
+    let mut tls;
+    asm!("mrs {tls}, tpidr_el0", tls = out(reg) tls);
+    tls
 }
 
 unsafe fn set_bionic_tls() {
-    set_tls(&BIONIC_TLS)
+    let tls = BIONIC_TLS.with(|v| v.get());
+    set_tls(tls);
 }
 
 #[cfg(target_arch = "x86_64")]
 unsafe extern "C" fn write_saved_data_to_tls(
-    gnu_tls: *const [u8; tls_size!()],
     bionic_tls: *const [u8; tls_size!()],
     table: *const [usize; num_funcs!()],
 ) {
-    GNU_TLS.with(|v| v.set(*gnu_tls));
     BIONIC_TLS.with(|v| v.set(*bionic_tls));
     TABLE.with(|v| v.set(*table));
 }
 
 #[cfg(target_arch = "aarch64")]
 unsafe extern "C" fn write_saved_data_to_tls(
-    gnu_tls: usize,
     bionic_tls: usize,
     table: *const [usize; num_funcs!()],
 ) {
-    GNU_TLS.with(|v| v.set(gnu_tls));
     BIONIC_TLS.with(|v| v.set(bionic_tls));
     TABLE.with(|v| v.set(*table));
 }
