@@ -125,7 +125,8 @@ global_asm!(
     "  stp x20, x19, [sp, #-16]!",
     "  ",
     // Allocate space for table
-    concat!("  sub sp, sp, (8 * ", num_funcs!(), " + 0xf) & ~0xf"),
+    concat!("  mov x0, (8 * ", num_funcs!(), " + 0xf) & ~0xf"),
+    "  sub sp, sp, x0",
     "  mov x19, sp",
     "  ",
     // Save GNU thread-local storage
@@ -153,7 +154,8 @@ global_asm!(
     "  ",
     "  mov x2, sp", // Table
     "  bl {write_saved_data_to_tls}",
-    concat!("  add sp, sp, (8 * ", num_funcs!(), " + 0xf) & ~0xf"),
+    concat!("  mov x0, (8 * ", num_funcs!(), " + 0xf) & ~0xf"),
+    "  add sp, sp, x0",
     "  ",
     // Restore callee-saved registers
     "  ldp x20, x19, [sp, #+16]!",
