@@ -84,20 +84,18 @@ fn make_thunk_body(
 }
 
 fn get_arg_names(args: &SynFuncArgs) -> impl Iterator<Item = &syn::Ident> + Clone {
-    args.iter().map(|arg| match arg {
-        syn::FnArg::Receiver(_) => panic!("unexpected `self` in `extern \"C\"` `fn`"),
-        syn::FnArg::Typed(pat_type) => match &*pat_type.pat {
-            syn::Pat::Ident(pat_ident) => {
-                assert!(pat_ident.attrs.is_empty());
-                assert!(pat_ident.by_ref.is_none());
-                assert!(pat_ident.mutability.is_none());
-                assert!(pat_ident.subpat.is_none());
-                &pat_ident.ident
-            }
-            _ => {
-                panic!("bindgen generated an argument pattern more complex than just an identifier")
-            }
-        },
+    args.iter().map(|arg| {
+        let syn::FnArg::Typed(pat_type) = arg else {
+            panic!("unexpected `self` in `extern \"C\"` `fn`")
+        };
+        let syn::Pat::Ident(pat_ident) = &*pat_type.pat else {
+            panic!("bindgen generated an argument pattern more complex than just an identifier")
+        };
+        assert!(pat_ident.attrs.is_empty());
+        assert!(pat_ident.by_ref.is_none());
+        assert!(pat_ident.mutability.is_none());
+        assert!(pat_ident.subpat.is_none());
+        &pat_ident.ident
     })
 }
 
@@ -130,9 +128,8 @@ fn extern_c_to_signature(extern_c: &syn::ItemForeignMod) -> &syn::Signature {
     assert_eq!(extern_c.abi.name.as_ref().unwrap().value(), "C");
     assert_eq!(extern_c.items.len(), 1);
     let c_item = &extern_c.items[0];
-    let c_fn = match c_item {
-        syn::ForeignItem::Fn(c_fn) => c_fn,
-        _ => panic!("item in `extern \"C\"` block is not an `fn`"),
+    let syn::ForeignItem::Fn(c_fn) = c_item else {
+        panic!("item in `extern \"C\"` block is not an `fn`")
     };
     assert!(matches!(c_fn.vis, syn::Visibility::Public(_)));
     let sig = &c_fn.sig;
