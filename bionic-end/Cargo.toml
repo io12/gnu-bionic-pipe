@@ -5,6 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-clap = { version = "4.3.11", features = ["derive"] }
+clap = { version = "4.3.21", features = ["derive"] }
 libloading = "0.8.0"
 parse_int = "0.6.0"
